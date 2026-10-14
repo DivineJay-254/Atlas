@@ -589,13 +589,29 @@ async function startServer() {
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
-        // The preview proxy does not forward Vite's HMR WebSocket reliably.
-        // Disable the client socket so the preview stays error-free; the host
-        // restarts/syncs the dev server when files change.
         hmr: false,
       },
       appType: 'spa',
     });
+
+    // The hosted preview does not proxy Vite's HMR WebSocket. Serve the entry
+    // document ourselves and remove Vite's injected client before it reaches
+    // the browser; Vite still handles module transforms and asset requests.
+    app.get('/', async (_req, res, next) => {
+      try {
+        const entryPath = path.join(__dirname, 'index.html');
+        const source = fs.readFileSync(entryPath, 'utf8');
+        const transformed = await vite.transformIndexHtml('/', source);
+        const withoutHmrClient = transformed.replace(
+          /\s*<script[^>]+src=["']\/@vite\/client["'][^>]*><\/script>\s*/g,
+          ''
+        );
+        res.status(200).type('html').send(withoutHmrClient);
+      } catch (error) {
+        next(error);
+      }
+    });
+
     app.use(vite.middlewares);
   } else {
     app.use(express.static(path.join(__dirname, 'dist')));
