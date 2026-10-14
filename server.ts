@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI } from '@google/genai';
 import fs from 'fs';
+import { ATLAS_CODEBASE_FILES } from './src/data/codebaseArchive.ts';
 
 dotenv.config();
 
@@ -662,13 +663,13 @@ app.post('/api/tools/execute', async (req: Request, res: Response) => {
 // Get Python Codebase Files Route
 app.get('/api/codebase', (_req: Request, res: Response) => {
   try {
+    const readmeContent = fs.existsSync(path.join(__dirname, 'README.md'))
+      ? fs.readFileSync(path.join(__dirname, 'README.md'), 'utf8')
+      : '# ATLAS - Desktop AI Assistant (Windows)\n';
+
     const files = {
-      'requirements.txt': fs.readFileSync(path.join(__dirname, 'requirements.txt'), 'utf8'),
-      'config.py': fs.readFileSync(path.join(__dirname, 'config.py'), 'utf8'),
-      'tools.py': fs.readFileSync(path.join(__dirname, 'tools.py'), 'utf8'),
-      'atlas_core.py': fs.readFileSync(path.join(__dirname, 'atlas_core.py'), 'utf8'),
-      'README.md': fs.readFileSync(path.join(__dirname, 'README.md'), 'utf8'),
-      'run_atlas.bat': fs.readFileSync(path.join(__dirname, 'run_atlas.bat'), 'utf8'),
+      ...ATLAS_CODEBASE_FILES,
+      'README.md': readmeContent,
     };
     return res.json(files);
   } catch (err: any) {
