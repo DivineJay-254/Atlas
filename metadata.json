@@ -1,0 +1,10 @@
+{
+  "name": "Atlas - Windows Desktop AI Assistant",
+  "description": "Production-grade Python desktop AI assistant codebase (Atlas architecture) powered by Google GenAI SDK, featuring system telemetry, tool execution, and a cyberpunk holographic command center.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

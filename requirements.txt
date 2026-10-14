@@ -1,0 +1,41 @@
+# ==============================================================================
+# ATLAS - Windows Desktop AI Assistant
+# Production Dependencies
+# ==============================================================================
+
+# Official Google GenAI Python SDK (Gemini Flash with Automatic Failover)
+google-genai>=2.4.0
+
+# ElevenLabs Official Python SDK for Neural Voice Synthesis
+elevenlabs>=1.50.0
+
+# Desktop GUI Automation & Screen Capture
+pyautogui>=0.9.54
+pillow>=10.4.0
+pygetwindow>=0.0.9
+
+# System Hardware Telemetry & Process Monitoring
+psutil>=6.0.0
+
+# Environment Configuration
+python-dotenv>=1.0.1
+
+# Terminal HUD & Output Formatting
+rich>=13.8.0
+
+# Windows SAPI5 Offline Text-to-Speech Engine Fallback
+pyttsx3>=2.98
+
+# Speech Recognition & Microphone Audio Stream Capture
+SpeechRecognition>=3.10.4
+PyAudio>=0.2.14
+
+# Wake-Word Detection Engine (Picovoice Porcupine)
+pvporcupine>=3.0.4
+
+# Real-Time Vocal Pitch & Acoustic Gender Analysis
+numpy>=1.26.0
+scipy>=1.12.0
+
+# HTTP & Weather Telemetry Resolvers
+requests>=2.32.3
