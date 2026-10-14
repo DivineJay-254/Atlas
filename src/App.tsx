@@ -78,7 +78,7 @@ export default function App() {
         () => {
           fetchWeather();
         },
-        { timeout: 4000 }
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
       );
     } else {
       fetchWeather();

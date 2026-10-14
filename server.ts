@@ -159,65 +159,22 @@ async function executeServerTool(name: string, args: any) {
   const timestamp = new Date().toLocaleTimeString();
   switch (name) {
     case 'get_weather': {
-      const openWeatherKey = process.env.OPENWEATHER_API_KEY?.trim();
-  if (!openWeatherKey) {
-    throw new Error('Weather is unavailable: configure OPENWEATHER_API_KEY.');
-  }
-  let lat = args?.lat;
+      let lat = args?.lat;
       let lon = args?.lon;
       let city = args?.city;
-
-      // If neither is provided, query IP geolocation
-      if (!city && (lat === undefined || lon === undefined)) {
-        try {
-          const ipRes = await fetch('https://ipapi.co/json/');
-          if (ipRes.ok) {
-            const ipData: any = await ipRes.json();
-            lat = ipData.latitude;
-            lon = ipData.longitude;
-            city = ipData.city;
-          }
-        } catch {
-          lat = 37.7749;
-          lon = -122.4194;
-          city = 'San Francisco';
-        }
+      if (lat === undefined || lon === undefined) {
+        const ipRes = await fetch('https://ipapi.co/json/');
+        if (!ipRes.ok) throw new Error('Live location lookup failed.');
+        const ipData: any = await ipRes.json();
+        lat = ipData.latitude;
+        lon = ipData.longitude;
+        city = ipData.city;
       }
-
-      try {
-        const queryUrl = lat !== undefined && lon !== undefined
-          ? `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${openWeatherKey}&units=metric`
-          : `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(city || 'San Francisco')}&appid=${openWeatherKey}&units=metric`;
-
-        const weatherRes = await fetch(queryUrl);
-        if (weatherRes.ok) {
-          const wData: any = await weatherRes.json();
-          return {
-            status: 'success',
-            city: wData.name || city,
-            country: wData.sys?.country,
-            temp: Math.round(wData.main?.temp),
-            feels_like: Math.round(wData.main?.feels_like),
-            condition: wData.weather?.[0]?.main || 'Clear',
-            description: wData.weather?.[0]?.description,
-            humidity: wData.main?.humidity,
-            wind_speed: wData.wind?.speed,
-            coordinates: { lat: wData.coord?.lat, lon: wData.coord?.lon }
-          };
-        }
-      } catch (err: any) {
-        console.error('OpenWeather error:', err);
-      }
-
-      return {
-        status: 'success',
-        city: city || 'San Francisco',
-        country: 'US',
-        temp: 24,
-        condition: 'Partly Cloudy',
-        humidity: 65,
-        wind_speed: 4.2
-      };
+      const weatherRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lon)}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&timezone=auto`);
+      if (!weatherRes.ok) throw new Error('Live weather lookup failed.');
+      const weather: any = await weatherRes.json();
+      const code = weather.current.weather_code;
+      return { status: 'success', city: city || 'Current location', temp: Math.round(weather.current.temperature_2m), feels_like: Math.round(weather.current.apparent_temperature), condition: code === 0 ? 'Clear' : code <= 3 ? 'Clouds' : code <= 67 ? 'Rain' : code <= 77 ? 'Snow' : 'Storm', humidity: weather.current.relative_humidity_2m, wind_speed: weather.current.wind_speed_10m, coordinates: { lat, lon } };
     }
 
     case 'get_system_specs':
@@ -335,10 +292,6 @@ async function executeServerTool(name: string, args: any) {
 // Weather Proxy Route (OpenWeatherMap API with Device Geolocation)
 // -----------------------------------------------------------------------------
 app.get('/api/weather', async (req: Request, res: Response) => {
-  const openWeatherKey = process.env.OPENWEATHER_API_KEY?.trim();
-  if (!openWeatherKey) {
-    return res.status(503).json({ error: 'Weather is unavailable: configure OPENWEATHER_API_KEY.' });
-  }
   let lat = req.query.lat as string | undefined;
   let lon = req.query.lon as string | undefined;
   let city = req.query.city as string | undefined;
@@ -361,68 +314,26 @@ app.get('/api/weather', async (req: Request, res: Response) => {
   }
 
   try {
-    const currentUrl = lat && lon
-      ? `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${openWeatherKey}&units=metric`
-      : `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(city || 'San Francisco')}&appid=${openWeatherKey}&units=metric`;
-
-    const forecastUrl = lat && lon
-      ? `https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${openWeatherKey}&units=metric`
-      : `https://api.openweathermap.org/data/2.5/forecast?q=${encodeURIComponent(city || 'San Francisco')}&appid=${openWeatherKey}&units=metric`;
-
-    const [curRes, foreRes] = await Promise.all([
-      fetch(currentUrl),
-      fetch(forecastUrl)
-    ]);
-
-    if (!curRes.ok) {
-      const errText = await curRes.text();
-      return res.status(curRes.status).json({ error: errText });
+    if (!lat || !lon) {
+      return res.status(400).json({ error: 'A real device or IP location could not be determined.' });
     }
 
-    const curData: any = await curRes.json();
-    let forecastList: any[] = [];
-
-    if (foreRes.ok) {
-      const foreData: any = await foreRes.json();
-      // Aggregate into 5 daily forecasts (noon snapshot or day average)
-      const dailyMap: Record<string, any> = {};
-      const dayNames = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
-
-      for (const item of foreData.list || []) {
-        const date = new Date(item.dt * 1000);
-        const dayKey = date.toISOString().split('T')[0];
-        const dayLabel = dayNames[date.getDay()];
-
-        if (!dailyMap[dayKey] && Object.keys(dailyMap).length < 5) {
-          dailyMap[dayKey] = {
-            day: dayLabel,
-            temp: Math.round(item.main.temp),
-            condition: item.weather?.[0]?.main || 'Clear',
-            icon: item.weather?.[0]?.icon
-          };
-        }
-      }
-      forecastList = Object.values(dailyMap);
-    }
-
+    const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lon)}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,surface_pressure&daily=weather_code,temperature_2m_max&timezone=auto&forecast_days=5`;
+    const weatherRes = await fetch(weatherUrl);
+    if (!weatherRes.ok) return res.status(weatherRes.status).json({ error: await weatherRes.text() });
+    const weather: any = await weatherRes.json();
+    const labels = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+    const conditionFor = (code: number) => code === 0 ? 'Clear' : code <= 3 ? 'Clouds' : code <= 67 ? 'Rain' : code <= 77 ? 'Snow' : 'Storm';
+    const geoRes = await fetch(`https://geocoding-api.open-meteo.com/v1/reverse?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lon)}&language=en&format=json`);
+    const geo: any = geoRes.ok ? await geoRes.json() : {};
+    const current = weather.current;
     return res.json({
-      status: 'success',
-      city: curData.name || city,
-      country: curData.sys?.country,
-      temp: Math.round(curData.main?.temp),
-      feels_like: Math.round(curData.main?.feels_like),
-      condition: curData.weather?.[0]?.main || 'Clear',
-      description: curData.weather?.[0]?.description,
-      humidity: curData.main?.humidity,
-      wind_speed: curData.wind?.speed,
-      pressure: curData.main?.pressure,
-      forecast: forecastList.length > 0 ? forecastList : [
-        { day: 'WED', temp: Math.round(curData.main?.temp), condition: curData.weather?.[0]?.main || 'Clear' },
-        { day: 'THU', temp: Math.round(curData.main?.temp + 1), condition: 'Clouds' },
-        { day: 'FRI', temp: Math.round(curData.main?.temp - 1), condition: 'Clear' },
-        { day: 'SAT', temp: Math.round(curData.main?.temp), condition: 'Clear' },
-        { day: 'SUN', temp: Math.round(curData.main?.temp - 2), condition: 'Clouds' }
-      ]
+      status: 'success', city: geo?.name || city || 'Current location', country: geo?.country_code,
+      temp: Math.round(current.temperature_2m), feels_like: Math.round(current.apparent_temperature),
+      condition: conditionFor(current.weather_code), humidity: current.relative_humidity_2m,
+      wind_speed: current.wind_speed_10m, pressure: current.surface_pressure,
+      coordinates: { lat: Number(lat), lon: Number(lon) },
+      forecast: weather.daily.time.map((date: string, index: number) => ({ day: labels[new Date(`${date}T12:00:00`).getDay()], temp: Math.round(weather.daily.temperature_2m_max[index]), condition: conditionFor(weather.daily.weather_code[index]) }))
     });
   } catch (err: any) {
     console.error('Weather error:', err);
