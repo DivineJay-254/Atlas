@@ -17,7 +17,7 @@ const PORT = 3000;
 app.use(express.json());
 
 // Initialize Google GenAI Client
-const apiKey = process.env.GEMINI_API_KEY || '';
+const apiKey = process.env.GEMINI_API_KEY?.trim();
 let aiClient: GoogleGenAI | null = null;
 if (apiKey) {
   try {
@@ -36,16 +36,12 @@ if (apiKey) {
 
 // System Instruction for Atlas
 const ATLAS_SYSTEM_INSTRUCTION = `
-You are "Atlas", an elite desktop AI assistant running natively on Windows.
-Demanding, crisp, highly analytical, sharp, courteous, and impeccably poised.
-Address the commander with quiet competence:
-- If the commander is male, address them as "Sir" (e.g., "Right away, sir", "Systems nominal, sir").
-- If the commander is female, address them as "Madam" (e.g., "Right away, madam", "Systems nominal, madam").
-- Never use the name Alex; always address the user with their proper honorific.
-- Crucial Directness Rule: Answer questions directly and concisely. Do NOT provide long-winded explanations, filler, unsolicited backstory, or preamble. Deliver the precise, informative answer in 1-2 sharp, articulate sentences unless in-depth code or detailed troubleshooting steps were specifically requested.
-Deliver information with executive clarity, precision, and tactical elegance.
-You have access to Windows desktop and telemetry tools (take_screenshot, run_terminal_command, get_system_specs, get_geolocation, get_weather, focus_window, get_active_windows, click_screen_coordinates, type_text, open_application).
-Call tools whenever relevant to assist the commander.
+You are Atlas, a warm and capable personal desktop assistant.
+Be natural, concise by default, and witty when it fits. Go deeper when the user asks.
+Use the user's chosen name or title only when it is known; never infer identity, gender, or a title from voice pitch.
+Admit uncertainty, ask focused clarifying questions when needed, and never claim a tool action succeeded unless its result says so.
+Call tools when they materially help. Explain risky actions and wait for explicit confirmation before executing them.
+Available tools include desktop inspection, telemetry, weather, window interaction, text entry, and application launching.
 `.trim();
 
 // Tool definitions for Gemini
@@ -162,8 +158,11 @@ async function executeServerTool(name: string, args: any) {
   const timestamp = new Date().toLocaleTimeString();
   switch (name) {
     case 'get_weather': {
-      const openWeatherKey = process.env.OPENWEATHER_API_KEY || 'e8e7788c9aa6a62a91298a363cf16ec5';
-      let lat = args?.lat;
+      const openWeatherKey = process.env.OPENWEATHER_API_KEY?.trim();
+  if (!openWeatherKey) {
+    throw new Error('Weather is unavailable: configure OPENWEATHER_API_KEY.');
+  }
+  let lat = args?.lat;
       let lon = args?.lon;
       let city = args?.city;
 
@@ -335,7 +334,10 @@ async function executeServerTool(name: string, args: any) {
 // Weather Proxy Route (OpenWeatherMap API with Device Geolocation)
 // -----------------------------------------------------------------------------
 app.get('/api/weather', async (req: Request, res: Response) => {
-  const openWeatherKey = process.env.OPENWEATHER_API_KEY || 'e8e7788c9aa6a62a91298a363cf16ec5';
+  const openWeatherKey = process.env.OPENWEATHER_API_KEY?.trim();
+  if (!openWeatherKey) {
+    return res.status(503).json({ error: 'Weather is unavailable: configure OPENWEATHER_API_KEY.' });
+  }
   let lat = req.query.lat as string | undefined;
   let lon = req.query.lon as string | undefined;
   let city = req.query.city as string | undefined;
@@ -436,9 +438,11 @@ app.post('/api/tts/elevenlabs', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Text required' });
   }
 
-  const elevenApiKey = process.env.ELEVENLABS_API_KEY || 'sk_d2c12a9999c1320d94c845084ed1f95439cdceb6df10742b';
-  // Default Voice: "Adam" (J.A.R.V.I.S. deep, poised, analytical tone)
-  const targetVoiceId = voiceId || process.env.ELEVENLABS_VOICE_ID || 'pNInz6obpgDQGcFmaJgB';
+  const elevenApiKey = process.env.ELEVENLABS_API_KEY?.trim();
+  const targetVoiceId = voiceId || process.env.ELEVENLABS_VOICE_ID?.trim();
+  if (!elevenApiKey || !targetVoiceId) {
+    return res.status(503).json({ error: 'Neural TTS is unavailable: set ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID in .env.' });
+  }
 
   try {
     const cleanText = text
@@ -485,14 +489,18 @@ app.post('/api/tts/elevenlabs', async (req: Request, res: Response) => {
 
 // Chat API Route with Gemini & Tool-Calling
 app.post('/api/chat', async (req: Request, res: Response) => {
-  const { message, history, deviceCoords, commanderTitle } = req.body;
+  const { message, history, deviceCoords, userName, preferredTitle } = req.body;
   if (!message) {
     return res.status(400).json({ error: 'Message required' });
   }
 
   // Candidate models with failover (using modern supported Gemini models)
   const CANDIDATE_MODELS = ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
-  const titleCap = commanderTitle === 'Madam' || commanderTitle === 'madam' ? 'Madam' : 'Sir';
+  const operatorAddress = typeof userName === 'string' && userName.trim()
+    ? userName.trim()
+    : typeof preferredTitle === 'string' && preferredTitle.trim()
+      ? preferredTitle.trim()
+      : 'there';
 
   if (aiClient && apiKey) {
     for (const modelName of CANDIDATE_MODELS) {
@@ -512,62 +520,45 @@ app.post('/api/chat', async (req: Request, res: Response) => {
           model: modelName,
           contents: userContents,
           config: {
-            systemInstruction: `${ATLAS_SYSTEM_INSTRUCTION}\nOperator Address: Address the commander as '${titleCap}'.\nDevice Telemetry Context: Location Coordinates: ${JSON.stringify(deviceCoords || {})}.\nCRITICAL DIRECTIVE: Answer the question directly and concisely without excessive explanation, preamble, or filler. Deliver the exact, authoritative answer in 1-2 sharp, articulate sentences unless detailed code or step-by-step instructions were specifically requested.`,
+            systemInstruction: `${ATLAS_SYSTEM_INSTRUCTION}\nOperator Address: Address the commander as '${operatorAddress}'.\nDevice Telemetry Context: Location Coordinates: ${JSON.stringify(deviceCoords || {})}.\nCRITICAL DIRECTIVE: Answer the question directly and concisely without excessive explanation, preamble, or filler. Deliver the exact, authoritative answer in 1-2 sharp, articulate sentences unless detailed code or step-by-step instructions were specifically requested.`,
             tools: [{ functionDeclarations: toolDeclarations as any }],
             temperature: 0.2
           }
         });
 
-        const candidate = response.candidates?.[0];
-        const functionCalls = candidate?.content?.parts?.filter((p: any) => p.functionCall)?.map((p: any) => p.functionCall);
-        let textParts = candidate?.content?.parts?.filter((p: any) => p.text)?.map((p: any) => p.text).join('\n') || '';
-
         const executedTools: any[] = [];
-        if (functionCalls && functionCalls.length > 0) {
-          const functionResponses: any[] = [];
-          for (const fc of functionCalls) {
+        let currentResponse: any = response;
+        let textParts = '';
+        const toolContents = [...userContents];
+
+        for (let round = 0; round < 5; round += 1) {
+          const candidate = currentResponse.candidates?.[0];
+          const modelContent = candidate?.content;
+          const functionCalls = modelContent?.parts?.filter((p: any) => p.functionCall)?.map((p: any) => p.functionCall) || [];
+          const roundText = modelContent?.parts?.filter((p: any) => p.text)?.map((p: any) => p.text).join('\n') || '';
+          if (roundText) textParts = roundText;
+          if (functionCalls.length === 0) break;
+
+          // Preserve the model function-call turn, execute every requested tool, then return every response.
+          toolContents.push(modelContent);
+          const functionResponses = await Promise.all(functionCalls.map(async (fc: any) => {
             const toolResult = await executeServerTool(fc.name, {
               ...fc.args,
               ...(fc.name === 'get_weather' && deviceCoords ? deviceCoords : {})
             });
-            executedTools.push({
-              name: fc.name,
-              args: fc.args,
-              result: toolResult
-            });
-            functionResponses.push({
-              functionResponse: {
-                name: fc.name,
-                response: { result: toolResult }
-              }
-            });
-          }
-
-          // Follow-up generation with tool response fed back to Gemini
-          try {
-            const followUpRes = await aiClient.models.generateContent({
-              model: modelName,
-              contents: [
-                ...userContents,
-                candidate?.content as any,
-                {
-                  role: 'user',
-                  parts: functionResponses
-                }
-              ],
-              config: {
-                systemInstruction: `${ATLAS_SYSTEM_INSTRUCTION}\nOperator Address: Address the commander as '${titleCap}'.\nCRITICAL DIRECTIVE: Formulate a crisp, direct verbal response presenting the exact answer or tool data to the commander. Keep it direct and concise in 1-2 sentences without lengthy explanation or filler.`,
-                temperature: 0.2
-              }
-            });
-
-            const followUpText = followUpRes.text || followUpRes.candidates?.[0]?.content?.parts?.filter((p: any) => p.text)?.map((p: any) => p.text).join('\n') || '';
-            if (followUpText) {
-              textParts = followUpText;
+            executedTools.push({ name: fc.name, args: fc.args, result: toolResult });
+            return { functionResponse: { name: fc.name, response: { result: toolResult } } };
+          }));
+          toolContents.push({ role: 'user', parts: functionResponses });
+          currentResponse = await aiClient.models.generateContent({
+            model: modelName,
+            contents: toolContents,
+            config: {
+              systemInstruction: `${ATLAS_SYSTEM_INSTRUCTION}\nOperator Address: Use the user's chosen name or title when known.`,
+              temperature: 0.2,
+              tools: [{ functionDeclarations: toolDeclarations as any }]
             }
-          } catch (followErr) {
-            console.warn('Tool follow-up synthesis error:', followErr);
-          }
+          });
         }
 
         let finalReply = textParts;
@@ -576,15 +567,15 @@ app.post('/api/chat', async (req: Request, res: Response) => {
           const firstTool = executedTools[0];
           if (firstTool.name === 'get_weather') {
             const r = firstTool.result;
-            finalReply = `Current atmospheric telemetry for ${r.city}: ${r.temp}°C, ${r.condition} with humidity at ${r.humidity}%, ${titleCap}.`;
+            finalReply = `Current atmospheric telemetry for ${r.city}: ${r.temp}°C, ${r.condition} with humidity at ${r.humidity}%, ${operatorAddress}.`;
           } else if (firstTool.name === 'get_system_specs') {
             const r = firstTool.result;
-            finalReply = `System hardware specs nominal, ${titleCap}: CPU load is at ${r.cpu?.usage_percent}%, RAM at ${r.memory?.usage_percent}%, disk storage optimal.`;
+            finalReply = `System hardware specs nominal, ${operatorAddress}: CPU load is at ${r.cpu?.usage_percent}%, RAM at ${r.memory?.usage_percent}%, disk storage optimal.`;
           } else if (firstTool.name === 'take_screenshot') {
-            finalReply = `Desktop screen captured to ${firstTool.result?.file_path || 'C:\\Atlas\\captures\\screenshot.png'}, ${titleCap}. Ready for visual diagnostic review.`;
+            finalReply = `Desktop screen captured to ${firstTool.result?.file_path || 'C:\\Atlas\\captures\\screenshot.png'}, ${operatorAddress}. Ready for visual diagnostic review.`;
           } else {
             const toolNames = executedTools.map(t => t.name).join(', ');
-            finalReply = `Directive completed, ${titleCap}. Subsystems processed: ${toolNames}.`;
+            finalReply = `Directive completed, ${operatorAddress}. Subsystems processed: ${toolNames}.`;
           }
         }
 
@@ -610,38 +601,38 @@ app.post('/api/chat', async (req: Request, res: Response) => {
   if (lower.includes('weather') || lower.includes('temperature') || lower.includes('forecast')) {
     const tRes: any = await executeServerTool('get_weather', deviceCoords || {});
     executedTools.push({ name: 'get_weather', args: deviceCoords || {}, result: tRes });
-    reply = `Atmospheric telemetry acquired, ${titleCap}. Current conditions in ${tRes.city}: ${tRes.temp}°C, ${tRes.condition}. Humidity at ${tRes.humidity}% with winds at ${tRes.wind_speed} m/s. Systems fully calibrated.`;
+    reply = `Atmospheric telemetry acquired, ${operatorAddress}. Current conditions in ${tRes.city}: ${tRes.temp}°C, ${tRes.condition}. Humidity at ${tRes.humidity}% with winds at ${tRes.wind_speed} m/s. Systems fully calibrated.`;
   } else if (lower.includes('spec') || lower.includes('telemetry') || lower.includes('cpu') || lower.includes('hardware')) {
     const tRes: any = await executeServerTool('get_system_specs', {});
     executedTools.push({ name: 'get_system_specs', args: {}, result: tRes });
-    reply = `Right away, ${titleCap}. Telemetry report indicates CPU usage is nominal at ${tRes?.cpu?.usage_percent || 24}%, 21.4 GB / 64 GB RAM allocated (33.4%), and 1.24 TB free on primary storage C:\\. Battery is at 94% on AC power.`;
+    reply = `Right away, ${operatorAddress}. Telemetry report indicates CPU usage is nominal at ${tRes?.cpu?.usage_percent || 24}%, 21.4 GB / 64 GB RAM allocated (33.4%), and 1.24 TB free on primary storage C:\\. Battery is at 94% on AC power.`;
   } else if (lower.includes('screenshot') || lower.includes('screen') || lower.includes('capture')) {
     const tRes: any = await executeServerTool('take_screenshot', { reason: 'Operator visual inspection' });
     executedTools.push({ name: 'take_screenshot', args: { reason: 'Operator visual inspection' }, result: tRes });
-    reply = `Screen capture recorded to ${tRes?.file_path || 'C:\\Atlas\\captures\\screenshot.png'}, ${titleCap}. Display resolution 2560x1440 verified. Ready for visual diagnostic review.`;
+    reply = `Screen capture recorded to ${tRes?.file_path || 'C:\\Atlas\\captures\\screenshot.png'}, ${operatorAddress}. Display resolution 2560x1440 verified. Ready for visual diagnostic review.`;
   } else if (lower.includes('location') || lower.includes('where am i') || lower.includes('geo')) {
     const tRes: any = await executeServerTool('get_geolocation', {});
     executedTools.push({ name: 'get_geolocation', args: {}, result: tRes });
-    reply = `Network coordinates resolved: ${tRes?.city || 'San Francisco'}, ${tRes?.region || 'California'}, ${tRes?.country || 'United States'} (Coordinates: ${tRes?.latitude || 37.7749}, ${tRes?.longitude || -122.4194}), ${titleCap}.`;
+    reply = `Network coordinates resolved: ${tRes?.city || 'San Francisco'}, ${tRes?.region || 'California'}, ${tRes?.country || 'United States'} (Coordinates: ${tRes?.latitude || 37.7749}, ${tRes?.longitude || -122.4194}), ${operatorAddress}.`;
   } else if (lower.includes('open') || lower.includes('launch')) {
     const target = lower.includes('notepad') ? 'notepad.exe' : lower.includes('calc') ? 'calc.exe' : lower.includes('code') ? 'code' : 'explorer.exe';
     const tRes: any = await executeServerTool('open_application', { app_target: target });
     executedTools.push({ name: 'open_application', args: { app_target: target }, result: tRes });
-    reply = `Right away, ${titleCap}. Initialized Windows process execution for '${target}'. Process handle confirmed.`;
+    reply = `Right away, ${operatorAddress}. Initialized Windows process execution for '${target}'. Process handle confirmed.`;
   } else if (lower.includes('terminal') || lower.includes('command') || lower.includes('dir') || lower.includes('ipconfig')) {
     const cmd = lower.includes('ipconfig') ? 'ipconfig' : 'dir C:\\Atlas';
     const tRes: any = await executeServerTool('run_terminal_command', { command: cmd });
     executedTools.push({ name: 'run_terminal_command', args: { command: cmd }, result: tRes });
-    reply = `Executing PowerShell directive '${cmd}', ${titleCap}. Exit code 0, standard output captured successfully.`;
+    reply = `Executing PowerShell directive '${cmd}', ${operatorAddress}. Exit code 0, standard output captured successfully.`;
   } else if (lower.includes('who are you') || lower.includes('what are you') || lower.includes('your name')) {
-    reply = `I am Atlas, your autonomous Windows desktop AI assistant, powered by Google GenAI and ElevenLabs neural audio. Standing by for all computational and desktop directives, ${titleCap}.`;
+    reply = `I am Atlas, your autonomous Windows desktop AI assistant, powered by Google GenAI and ElevenLabs neural audio. Standing by for all computational and desktop directives, ${operatorAddress}.`;
   } else if (lower.includes('time') || lower.includes('date')) {
     const now = new Date();
-    reply = `The current time is ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}, on ${now.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}, ${titleCap}.`;
+    reply = `The current time is ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}, on ${now.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}, ${operatorAddress}.`;
   } else if (lower.includes('hello') || lower.includes('hey') || lower.includes('hi')) {
-    reply = `Greetings, ${titleCap}. Atlas is online, telemetry is nominal, and I am listening for your directive.`;
+    reply = `Greetings, ${operatorAddress}. Atlas is online, telemetry is nominal, and I am listening for your directive.`;
   } else {
-    reply = `Regarding your inquiry on "${message}", ${titleCap}: All analytical models and Windows workstation subsystems are operational. How would you like to proceed?`;
+    reply = `Regarding your inquiry on "${message}", ${operatorAddress}: All analytical models and Windows workstation subsystems are operational. How would you like to proceed?`;
   }
 
   return res.json({

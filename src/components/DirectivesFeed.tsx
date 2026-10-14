@@ -23,7 +23,7 @@ export const DirectivesFeed: React.FC<DirectivesFeedProps> = ({
           {/* Sender Header */}
           <div className="flex items-center space-x-2 mb-1 px-1">
             <span className="font-mono text-[10px] uppercase tracking-wider text-slate-400">
-              {msg.role === 'user' ? `COMMANDER (${msg.commanderTitle || 'Sir'})` : 'ATLAS CORE'}
+              {msg.role === 'user' ? `COMMANDER (${msg.commanderTitle || 'Operator'})` : 'ATLAS CORE'}
             </span>
             <span className="font-mono text-[9px] text-slate-400">
               {msg.timestamp}

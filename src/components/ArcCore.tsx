@@ -3,8 +3,8 @@ import { Mic, MicOff, Volume2, Cpu, Zap, Activity } from 'lucide-react';
 
 interface ArcCoreProps {
   status: 'IDLE' | 'LISTENING' | 'COMPUTING' | 'SPEAKING';
-  commanderTitle: 'Sir' | 'Madam';
-  onCommanderTitleChange: (title: 'Sir' | 'Madam') => void;
+  commanderTitle: string;
+  onCommanderTitleChange: (title: string) => void;
   onVoiceDirective: (transcript: string) => void;
   voicePitchHz: number;
   setVoicePitchHz: (hz: number) => void;
@@ -137,15 +137,9 @@ export const ArcCore: React.FC<ArcCoreProps> = ({
 
           if (bestOffset > 0) {
             const detectedPitch = Math.round(sampleRate / bestOffset);
-            if (detectedPitch >= 75 && detectedPitch <= 350) {
-              setVoicePitchHz(detectedPitch);
-              // Pitch Classification: >= 160Hz -> Madam, < 160Hz -> Sir
-              if (detectedPitch >= 160 && commanderTitle !== 'Madam') {
-                onCommanderTitleChange('Madam');
-              } else if (detectedPitch < 160 && commanderTitle !== 'Sir') {
-                onCommanderTitleChange('Sir');
-              }
-            }
+  if (detectedPitch >= 75 && detectedPitch <= 350) {
+    setVoicePitchHz(detectedPitch);
+  }
           }
         }
 
@@ -313,11 +307,11 @@ export const ArcCore: React.FC<ArcCoreProps> = ({
           </span>
         </div>
         <div className="bg-slate-950/50 p-2 rounded border border-slate-800 flex items-center justify-between">
-          <span className="text-slate-400">HONORIFIC:</span>
+          <span className="text-slate-400">ADDRESS AS:</span>
           <button
-            onClick={() => onCommanderTitleChange(commanderTitle === 'Sir' ? 'Madam' : 'Sir')}
+            onClick={() => onCommanderTitleChange(commanderTitle === 'Operator' ? 'Commander' : 'Operator')}
             className="text-cyan-300 hover:text-cyan-100 font-semibold underline underline-offset-2 cursor-pointer flex items-center space-x-1"
-            title="Click to toggle Sir/Madam manually"
+            title="Click to switch between Operator and Commander"
           >
             <span>{commanderTitle}</span>
             <span className="text-[10px] text-slate-400 font-normal">(auto)</span>

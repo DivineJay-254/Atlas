@@ -75,7 +75,6 @@ Windows security blocklists, and ElevenLabs neural audio settings.
 """
 
 import os
-import re
 import sys
 from pathlib import Path
 from dotenv import load_dotenv
@@ -88,11 +87,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "").strip()
 ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "pNInz6obpgDQGcFmaJgB").strip()
 
-OPENWEATHERMAP_API_KEY = (
-    os.getenv("OPENWEATHERMAP_API_KEY") or 
-    os.getenv("OPENWEATHER_API_KEY") or 
-    "e8e7788c9aa6a62a91298a363cf16ec5"
-).strip()
+OPENWEATHERMAP_API_KEY = (os.getenv("OPENWEATHERMAP_API_KEY") or os.getenv("OPENWEATHER_API_KEY") or "").strip()
 
 MODEL_FAILOVER_LIST = [
     "gemini-3.8-flash",
@@ -101,20 +96,13 @@ MODEL_FAILOVER_LIST = [
 ]
 DEFAULT_MODEL = os.getenv("ATLAS_MODEL", MODEL_FAILOVER_LIST[0])
 
-# 2. System Instructions & Honorific Rules
+# 2. System Instructions
 SYSTEM_INSTRUCTION = """
-You are "Atlas", an elite, autonomous desktop AI assistant running natively on the user's Windows workstation.
-
-Persona & Demeanor:
-- Crisp, highly analytical, sharp, courteous, and impeccably poised.
-- Quiet competence: deliver information with executive clarity, precision, and tactical elegance.
-- Crucial Honorific Rule:
-  * Dynamically address the commander as "Sir" (for male voice profiles) or "Madam" (for female voice profiles).
-  * NEVER use preset generic names like "Alex". You serve your Commander.
-- Conversational Directness:
-  * Answer questions directly, concisely, and accurately without lots of explanation, filler, or unsolicited backstory.
-  * Deliver the exact answer in 1-2 sharp, articulate sentences unless detailed code or step-by-step procedures were explicitly commanded.
-  * Never give canned, evasive, or repetitive boilerplate responses.
+You are Atlas, a warm and capable personal desktop assistant.
+Be natural, concise by default, and witty when it fits; go deeper when asked.
+Use the user's chosen name or title only when known. Never infer identity or gender from voice pitch.
+Admit uncertainty and never claim an action succeeded unless the tool result confirms it.
+Ask for explicit confirmation before risky actions.
 
 Autonomous Tools:
 You have native integration with local Windows workstation tools:
@@ -126,15 +114,7 @@ You have native integration with local Windows workstation tools:
 6. \`open_application\`: Launch Windows applications, utilities, or web URLs.
 """.strip()
 
-# 3. Voice Profile Config
-VOICE_PROFILE_CONFIG = {
-    "pitch_gender_threshold_hz": 160.0,
-    "default_honorific": "Sir",
-    "min_pitch_hz": 75.0,
-    "max_pitch_hz": 350.0,
-}
-
-# 4. Security Protocols & Windows Command Blocklist
+# 3. Security Protocols & Windows Command Blocklist
 COMMAND_BLOCKLIST_PATTERNS = [
     r"\\brmdir\\s+/[sS]\\s+/[qQ]\\s+[cC]:\\\\?",
     r"\\bdel\\s+/[fF]\\s+/[sS]\\s+/[qQ]\\s+[cC]:\\\\?",
@@ -382,35 +362,6 @@ class AtlasDatabase:
             cursor.execute("SELECT role, content FROM conversations ORDER BY id DESC LIMIT ?", (limit,))
             return [{"role": r["role"], "content": r["content"]} for r in reversed(cursor.fetchall())]
 
-class VoiceProfileDetector:
-    def __init__(self):
-        self.current_title = "Sir"
-        self.last_pitch_hz = 0.0
-
-    def estimate_pitch_from_pcm(self, pcm_bytes: bytes, sample_rate: int = 16000) -> float:
-        if np is None or len(pcm_bytes) < 1024:
-            return 0.0
-        try:
-            audio_data = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32)
-            audio_data -= np.mean(audio_data)
-            corr = np.correlate(audio_data, audio_data, mode="full")
-            corr = corr[len(corr) // 2:]
-            min_lag = int(sample_rate / 350.0)
-            max_lag = int(sample_rate / 75.0)
-            peak_lag = min_lag + np.argmax(corr[min_lag:max_lag])
-            if corr[peak_lag] > 0.3 * corr[0]:
-                return round(float(sample_rate / peak_lag), 1)
-        except Exception:
-            pass
-        return 0.0
-
-    def process_audio_frame(self, pcm_bytes: bytes, sample_rate: int = 16000) -> str:
-        pitch = self.estimate_pitch_from_pcm(pcm_bytes, sample_rate)
-        if pitch > 0.0:
-            self.last_pitch_hz = pitch
-            self.current_title = "Madam" if pitch >= 160.0 else "Sir"
-        return self.current_title
-
 class ElevenLabsVoiceEngine:
     def __init__(self):
         self.speech_queue = queue.Queue()
@@ -420,9 +371,21 @@ class ElevenLabsVoiceEngine:
     def _worker(self):
         while True:
             text = self.speech_queue.get()
-            if text is None: break
-            # ElevenLabs or SAPI5 fallback
-            self.speech_queue.task_done()
+            try:
+                if text is None:
+                    return
+                self._speak_text(text)
+            finally:
+                self.speech_queue.task_done()
+
+    def _speak_text(self, text: str):
+        try:
+            import pyttsx3
+            engine = pyttsx3.init()
+            engine.say(text)
+            engine.runAndWait()
+        except Exception as exc:
+            print(f"Offline TTS unavailable: {exc}")
 
     def speak(self, text: str):
         if text and text.strip():

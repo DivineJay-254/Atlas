@@ -3,7 +3,7 @@ export interface Message {
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
-  commanderTitle?: 'Sir' | 'Madam';
+  commanderTitle?: string;
   toolCalls?: ToolExecutionResult[];
   modelUsed?: string;
   isAudioPlaying?: boolean;

@@ -23,8 +23,8 @@ import { CodebaseModal } from './components/CodebaseModal';
 import { Message, SystemSpecs, WeatherData } from './types';
 
 export default function App() {
-  const [commanderTitle, setCommanderTitle] = useState<'Sir' | 'Madam'>('Sir');
-  const [voicePitchHz, setVoicePitchHz] = useState<number>(128); // Nominal male frequency baseline
+  const [commanderTitle, setCommanderTitle] = useState<string>('Operator');
+  const [voicePitchHz, setVoicePitchHz] = useState<number>(0);
   const [status, setStatus] = useState<'IDLE' | 'LISTENING' | 'COMPUTING' | 'SPEAKING'>('IDLE');
   const [isAudioMuted, setIsAudioMuted] = useState(false);
   const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
@@ -34,7 +34,7 @@ export default function App() {
     {
       id: 'init-1',
       role: 'assistant',
-      content: 'Atlas online, sir. Subsystems calibrated, Windows security blocklists armed, and telemetry nominal. Standing by for your directives.',
+      content: 'Atlas online. Subsystems calibrated, Windows security blocklists armed, and telemetry nominal. Standing by for your directives.',
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       commanderTitle: 'Sir',
       modelUsed: 'gemini-3.8-flash'
@@ -173,7 +173,7 @@ export default function App() {
       const cleanText = text.replace(/[*#`_]/g, '').slice(0, 300);
       const utterance = new SpeechSynthesisUtterance(cleanText);
       utterance.rate = 1.05;
-      utterance.pitch = commanderTitle === 'Madam' ? 1.0 : 0.9;
+      utterance.pitch = 1.0;
 
       utterance.onend = () => {
         setPlayingAudioId(null);
