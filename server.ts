@@ -678,7 +678,10 @@ async function startServer() {
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
-        hmr: { server: httpServer },
+        // The preview proxy does not forward Vite's HMR WebSocket reliably.
+        // Disable the client socket so the preview stays error-free; the host
+        // restarts/syncs the dev server when files change.
+        hmr: false,
       },
       appType: 'spa',
     });
